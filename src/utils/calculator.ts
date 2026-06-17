@@ -176,3 +176,26 @@ export function aggregateByCategory(
     }))
     .sort((a, b) => b.value - a.value);
 }
+
+export function aggregateByDepartment(
+  records: EmissionRecord[],
+  departments: { id: string; name: string }[]
+): { departmentId: string; departmentName: string; emission: number; percentage: number }[] {
+  const deptMap = new Map<string, number>();
+  let total = 0;
+  records.forEach((r) => {
+    deptMap.set(r.departmentId, (deptMap.get(r.departmentId) || 0) + r.emissionTonCo2);
+    total += r.emissionTonCo2;
+  });
+  return Array.from(deptMap.entries())
+    .map(([deptId, emission]) => {
+      const dept = departments.find((d) => d.id === deptId);
+      return {
+        departmentId: deptId,
+        departmentName: dept?.name || deptId,
+        emission: Number(emission.toFixed(2)),
+        percentage: total > 0 ? Number((emission / total * 100).toFixed(1)) : 0,
+      };
+    })
+    .sort((a, b) => b.emission - a.emission);
+}

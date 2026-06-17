@@ -28,8 +28,35 @@ export interface ImportRow {
 
 export interface ImportResult {
   success: Omit<EmissionRecord, "id" | "emissionTonCo2">[];
-  errors: { row: number; message: string }[];
+  errors: { row: number | string; message: string }[];
   count: number;
+}
+
+function mergeAndSimplifyErrors(
+  errors: { row: number; message: string }[]
+): { row: number | string; message: string }[] {
+  const byMessage = new Map<string, number[]>();
+  errors.forEach((e) => {
+    const rows = byMessage.get(e.message) || [];
+    rows.push(e.row);
+    byMessage.set(e.message, rows);
+  });
+
+  const result: { row: number | string; message: string }[] = [];
+  byMessage.forEach((rows, msg) => {
+    if (rows.length === 1) {
+      result.push({ row: rows[0], message: msg });
+    } else {
+      rows.sort((a, b) => a - b);
+      const rowStr = rows.slice(0, 5).join("、") + (rows.length > 5 ? ` 等${rows.length}行` : "");
+      result.push({ row: rowStr, message: msg });
+    }
+  });
+  return result.sort((a, b) => {
+    const ra = typeof a.row === "string" ? 9999 : a.row;
+    const rb = typeof b.row === "string" ? 9999 : b.row;
+    return ra - rb;
+  });
 }
 
 export function importEmissionRecordsFromExcel(
@@ -139,7 +166,24 @@ export function importEmissionRecordsFromExcel(
           }
         });
 
-        resolve({ success, errors, count: success.length });
+        const seenKeys = new Set<string>();
+        const dupKeys = new Map<string, number[]>();
+        const finalSuccess: Omit<EmissionRecord, "id" | "emissionTonCo2">[] = [];
+        success.forEach((r, idx) => {
+          const key = `${r.departmentId}|${r.sourceId}|${r.periodYear}|${r.periodMonth}|${r.recordDate}|${r.quantity}`;
+          if (seenKeys.has(key)) {
+            const rows = dupKeys.get(key) || [];
+            if (rows.length === 0) rows.push(idx + 2);
+            rows.push(idx + 2);
+            dupKeys.set(key, rows);
+            errors.push({ row: idx + 2, message: `与表格内其他行重复（同一部门、排放源、日期、数量），已跳过` });
+          } else {
+            seenKeys.add(key);
+            finalSuccess.push(r);
+          }
+        });
+
+        resolve({ success: finalSuccess, errors: mergeAndSimplifyErrors(errors), count: finalSuccess.length });
       } catch (err) {
         reject(err);
       }
@@ -250,19 +294,37 @@ export function exportReductionMeasuresToExcel(measures: ReductionMeasure[], dep
   XLSX.writeFile(wb, `减排措施_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
-export function exportReport(report: EsgReport, summary: ReportSummary, framework: ReportFramework): void {
+export function exportReport(
+  report: EsgReport,
+  summary: ReportSummary,
+  framework: ReportFramework,
+  categoryBreakdown?: { category: string; value: number; percentage: number }[],
+  departmentBreakdown?: { departmentId: string; departmentName: string; emission: number; percentage: number }[]
+): void {
   const wb = XLSX.utils.book_new();
 
   const summaryData = [
     { 指标: "报告期", 数值: report.period },
+    { 指标: "报告范围", 数值: report.scope === "department" ? "按部门分解" : "全公司" },
     { 指标: "总排放量", 数值: `${summary.totalEmission.toFixed(2)} 吨CO₂e` },
     { 指标: "减排抵消量", 数值: `${summary.totalOffset.toFixed(2)} 吨CO₂e` },
     { 指标: "净排放量", 数值: `${summary.netEmission.toFixed(2)} 吨CO₂e` },
     { 指标: "目标完成率", 数值: `${summary.targetCompletion.toFixed(1)}%` },
     { 指标: "同比变化", 数值: `${summary.yoyChange > 0 ? "+" : ""}${summary.yoyChange.toFixed(1)}%` },
   ];
+  if (report.targetSnapshot?.hasTarget) {
+    summaryData.push(
+      { 指标: "基准排放量", 数值: `${report.targetSnapshot.baselineEmissionTonCo2?.toFixed(2)} 吨CO₂e` },
+      { 指标: "目标排放量", 数值: `${report.targetSnapshot.targetEmissionTonCo2?.toFixed(2)} 吨CO₂e` },
+      { 指标: "距目标差距", 数值: report.targetSnapshot.gapFromTarget !== undefined
+          ? (report.targetSnapshot.gapFromTarget <= 0
+              ? `已低于目标 ${Math.abs(report.targetSnapshot.gapFromTarget).toFixed(2)} 吨CO₂e`
+              : `还需减排 ${report.targetSnapshot.gapFromTarget.toFixed(2)} 吨CO₂e`)
+          : "-" }
+    );
+  }
   const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-  wsSummary["!cols"] = [{ wch: 20 }, { wch: 30 }];
+  wsSummary["!cols"] = [{ wch: 20 }, { wch: 40 }];
   XLSX.utils.book_append_sheet(wb, wsSummary, "报告摘要");
 
   const sourceData = summary.topEmissionSources.map((s) => ({
@@ -272,6 +334,28 @@ export function exportReport(report: EsgReport, summary: ReportSummary, framewor
   const wsSources = XLSX.utils.json_to_sheet(sourceData);
   wsSources["!cols"] = [{ wch: 25 }, { wch: 25 }];
   XLSX.utils.book_append_sheet(wb, wsSources, "主要排放源");
+
+  if (categoryBreakdown && categoryBreakdown.length > 0) {
+    const catData = categoryBreakdown.map((c) => ({
+      排放类别: c.category,
+      排放量: `${c.value.toFixed(2)} 吨CO₂e`,
+      占比: `${c.percentage.toFixed(1)}%`,
+    }));
+    const wsCat = XLSX.utils.json_to_sheet(catData);
+    wsCat["!cols"] = [{ wch: 15 }, { wch: 25 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsCat, "排放结构");
+  }
+
+  if (departmentBreakdown && departmentBreakdown.length > 0) {
+    const deptData = departmentBreakdown.map((d) => ({
+      部门: d.departmentName,
+      排放量: `${d.emission.toFixed(2)} 吨CO₂e`,
+      占比: `${d.percentage.toFixed(1)}%`,
+    }));
+    const wsDept = XLSX.utils.json_to_sheet(deptData);
+    wsDept["!cols"] = [{ wch: 20 }, { wch: 25 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsDept, report.scope === "department" ? "部门排放明细" : "部门排放Top");
+  }
 
   if (framework === "gri") {
     const griData = griDisclosures.map((d, idx) => ({

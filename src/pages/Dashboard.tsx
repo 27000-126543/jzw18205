@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Zap, Target, Leaf, TrendingDown, Factory } from "lucide-react";
+import { Zap, Target, Leaf, TrendingDown, Factory, AlertTriangle, CheckCircle, Flag } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
   calculateTotalEmission,
@@ -177,6 +177,60 @@ export default function Dashboard() {
           delay={200}
         />
       </div>
+
+      {hasTarget && (
+        <div
+          className={`animate-fade-in-up mb-6 ${gapFromTarget! <= 0 ? "border-forest-200 bg-gradient-to-r from-forest-50 to-forest-100/40" : "border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/40"} card p-6 border`}
+          style={{ animationDelay: "220ms", opacity: 0 }}
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-5">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${gapFromTarget! <= 0 ? "bg-forest-600" : "bg-amber-500"}`}>
+              {gapFromTarget! <= 0 ? (
+                <CheckCircle className="w-7 h-7 text-white" />
+              ) : (
+                <AlertTriangle className="w-7 h-7 text-white" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-display font-bold text-xl text-slate-850 flex items-center gap-2">
+                <Flag className={`w-5 h-5 ${gapFromTarget! <= 0 ? "text-forest-600" : "text-amber-600"}`} />
+                {currentYear}年度减排目标差距摘要
+              </h3>
+              <p className="text-base mt-2 leading-relaxed">
+                {gapFromTarget! <= 0 ? (
+                  <>
+                    当前净排放 <span className="font-bold text-forest-700">{formatEmission(netEmission)} 吨</span>，
+                    已低于目标 <span className="font-bold text-forest-700">{formatEmission(targetEmission!)} 吨</span>
+                    <span className="text-forest-600 font-bold"> {formatEmission(Math.abs(gapFromTarget!))} 吨</span>，
+                    超额完成 <span className="font-bold text-forest-700">{targetCompletion.toFixed(1)}%</span>。
+                  </>
+                ) : (
+                  <>
+                    当前净排放 <span className="font-bold text-amber-700">{formatEmission(netEmission)} 吨</span>，
+                    距离年度目标 <span className="font-bold text-amber-700">{formatEmission(targetEmission!)} 吨</span>
+                    还差 <span className="font-bold text-amber-600">{formatEmission(gapFromTarget!)} 吨</span>，
+                    完成度约 <span className="font-bold text-amber-700">{targetCompletion.toFixed(1)}%</span>，
+                    需加大减排力度。
+                  </>
+                )}
+              </p>
+              <p className="text-xs text-forest-500 mt-1.5">
+                基准排放 {formatEmission(baselineEmission!)} 吨，目标排放 {formatEmission(targetEmission!)} 吨，
+                目标减排量 {formatEmission(baselineEmission! - targetEmission!)} 吨
+              </p>
+            </div>
+            {gapFromTarget! > 0 && (
+              <button
+                onClick={() => navigate(`/measures?year=${currentYear}`)}
+                className="btn-primary flex-shrink-0 flex items-center gap-2"
+              >
+                <Leaf className="w-4 h-4" />
+                查看减排项目
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         <div className="card p-6 animate-fade-in-up" style={{ animationDelay: "250ms", opacity: 0 }}>

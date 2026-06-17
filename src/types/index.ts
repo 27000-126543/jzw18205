@@ -75,7 +75,16 @@ export interface EsgReport {
   status: ReportStatus;
   generatedAt: string;
   framework?: ReportFramework;
+  scope?: "all" | "department";
   summary?: ReportSummary;
+  categoryBreakdown?: { category: string; value: number; percentage: number }[];
+  departmentBreakdown?: { departmentId: string; departmentName: string; emission: number; percentage: number }[];
+  targetSnapshot?: {
+    baselineEmissionTonCo2?: number;
+    targetEmissionTonCo2?: number;
+    gapFromTarget?: number;
+    hasTarget: boolean;
+  };
 }
 
 export interface ReportSummary {
