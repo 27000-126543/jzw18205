@@ -23,7 +23,8 @@ export default function DataEntry() {
   const [filterCategory, setFilterCategory] = useState("all");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [showImportResult, setShowImportResult] = useState(false);
+  const [showImportPreview, setShowImportPreview] = useState(false);
+  const [imported, setImported] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -138,17 +139,29 @@ export default function DataEntry() {
 
     setImporting(true);
     setImportResult(null);
+    setImported(false);
     try {
       const result = await importEmissionRecordsFromExcel(file, departments);
-      result.success.forEach((record) => addEmissionRecord(record));
       setImportResult(result);
-      setShowImportResult(true);
+      setShowImportPreview(true);
     } catch (err: any) {
       alert(`导入失败：${err.message || "未知错误"}`);
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const handleConfirmImport = () => {
+    if (!importResult) return;
+    importResult.success.forEach((record) => addEmissionRecord(record));
+    setImported(true);
+    setShowImportPreview(false);
+  };
+
+  const handleCancelImport = () => {
+    setImportResult(null);
+    setShowImportPreview(false);
   };
 
   const selectedSource = emissionSources.find((s) => s.id === formData.sourceId);
@@ -194,7 +207,7 @@ export default function DataEntry() {
         }
       />
 
-      {showImportResult && importResult && (
+      {imported && importResult && (
         <div className="mb-5 animate-fade-in-up">
           <div className="card p-5 border-l-4 border-forest-500">
             <div className="flex items-start justify-between">
@@ -208,27 +221,14 @@ export default function DataEntry() {
                     <p className="text-sm text-forest-600">
                       成功导入 <span className="font-bold text-forest-700">{importResult.count}</span> 条记录
                       {importResult.errors.length > 0 && (
-                        <span className="ml-3">，<span className="font-bold text-amber-600">{importResult.errors.length}</span> 条数据存在问题</span>
+                        <span className="ml-3">，<span className="font-bold text-amber-600">{importResult.errors.length}</span> 条数据存在问题已跳过</span>
                       )}
                     </p>
                   </div>
                 </div>
-                {importResult.errors.length > 0 && (
-                  <div className="mt-3 p-4 rounded-xl bg-amber-50 border border-amber-200 max-h-48 overflow-y-auto">
-                    <p className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4" />
-                      以下行未成功导入：
-                    </p>
-                    <ul className="space-y-1 text-xs text-amber-700">
-                      {importResult.errors.map((e, idx) => (
-                        <li key={idx}>第 {e.row} 行：{e.message}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
               <button
-                onClick={() => { setShowImportResult(false); setImportResult(null); }}
+                onClick={() => { setImported(false); setImportResult(null); }}
                 className="p-2 rounded-lg hover:bg-forest-50 text-forest-500 flex-shrink-0 ml-3"
               >
                 <X className="w-5 h-5" />
@@ -465,6 +465,109 @@ export default function DataEntry() {
                 <Check className="w-4 h-4" />
                 {editingRecord ? "保存修改" : "确认新增"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showImportPreview && importResult && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-fade-in-up">
+            <div className="p-6 border-b border-forest-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="font-display font-bold text-xl text-forest-800">导入预览</h3>
+                <p className="text-sm text-forest-500 mt-1">
+                  请确认以下数据后再导入，有问题的行将被跳过
+                </p>
+              </div>
+              <button onClick={handleCancelImport} className="p-2 rounded-lg hover:bg-forest-50 text-forest-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {importResult.success.length > 0 && (
+                <div>
+                  <h4 className="font-display font-bold text-base text-forest-800 mb-3 flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-forest-600" />
+                    将新增 {importResult.success.length} 条记录
+                  </h4>
+                  <div className="overflow-x-auto border border-forest-100 rounded-xl">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-forest-50/50 border-b border-forest-100">
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">部门</th>
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">排放源</th>
+                          <th className="px-4 py-2.5 text-right font-semibold text-forest-700">活动数据</th>
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">年份</th>
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">月份</th>
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">日期</th>
+                          <th className="px-4 py-2.5 text-left font-semibold text-forest-700">备注</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-forest-50">
+                        {importResult.success.slice(0, 20).map((r, idx) => {
+                          const dept = departments.find((d) => d.id === r.departmentId);
+                          const source = emissionSources.find((s) => s.id === r.sourceId);
+                          return (
+                            <tr key={idx} className="hover:bg-forest-50/30">
+                              <td className="px-4 py-2 text-slate-850">{dept?.name || r.departmentId}</td>
+                              <td className="px-4 py-2 text-slate-850">{source?.name || r.sourceId}</td>
+                              <td className="px-4 py-2 text-right text-slate-850">
+                                {r.quantity.toLocaleString()} {source?.unit}
+                              </td>
+                              <td className="px-4 py-2 text-slate-850">{r.periodYear}</td>
+                              <td className="px-4 py-2 text-slate-850">{r.periodMonth}月</td>
+                              <td className="px-4 py-2 text-slate-850">{r.recordDate}</td>
+                              <td className="px-4 py-2 text-forest-600 max-w-[120px] truncate">{r.remark || "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {importResult.success.length > 20 && (
+                      <p className="text-xs text-forest-500 text-center py-2 border-t border-forest-100">
+                        仅展示前20条，共 {importResult.success.length} 条
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {importResult.errors.length > 0 && (
+                <div>
+                  <h4 className="font-display font-bold text-base text-amber-700 mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-500" />
+                    {importResult.errors.length} 条数据存在问题（将跳过）
+                  </h4>
+                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 max-h-48 overflow-y-auto">
+                    <ul className="space-y-1 text-xs text-amber-700">
+                      {importResult.errors.map((e, idx) => (
+                        <li key={idx}>第 {e.row} 行：{e.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {importResult.success.length === 0 && (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+                  <p className="text-amber-600">没有可导入的有效数据，请检查文件内容</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-forest-100 flex justify-end gap-3 sticky bottom-0 bg-white">
+              <button onClick={handleCancelImport} className="btn-secondary">
+                取消
+              </button>
+              {importResult.success.length > 0 && (
+                <button onClick={handleConfirmImport} className="btn-primary flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  确认导入 {importResult.success.length} 条记录
+                </button>
+              )}
             </div>
           </div>
         </div>

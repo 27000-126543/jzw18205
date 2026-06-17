@@ -109,9 +109,10 @@ export default function Dashboard() {
     return sources[0];
   }, [emissionRecords, currentYear]);
 
-  const baselineEmission = companyTarget?.baselineEmissionTonCo2 ?? 3500;
-  const targetEmission = companyTarget?.targetEmissionTonCo2 ?? 2800;
-  const remainingGap = Math.max(0, targetEmission - netEmission);
+  const baselineEmission = companyTarget?.baselineEmissionTonCo2;
+  const targetEmission = companyTarget?.targetEmissionTonCo2;
+  const hasTarget = !!companyTarget && !!targetEmission;
+  const gapFromTarget = hasTarget ? netEmission - targetEmission! : null;
   const activeInProgress = reductionMeasures.filter((m) => m.status === "in_progress").length;
   const totalInProgressOffset = reductionMeasures
     .filter((m) => m.status !== "planning")
@@ -178,34 +179,49 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         <div className="card p-6 animate-fade-in-up" style={{ animationDelay: "250ms", opacity: 0 }}>
           <h3 className="font-display font-bold text-lg text-forest-800 mb-4">减排目标进度</h3>
-          <div className="flex flex-col items-center py-4">
-            <ProgressRing
-              percentage={targetCompletion}
-              label="目标完成度"
-              subtitle={`${currentYear}年度`}
-              size={180}
-            />
-            <div className="mt-6 w-full space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-forest-600">基准排放</span>
-                <span className="font-medium text-slate-850">{formatEmission(baselineEmission)} 吨</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-forest-600">目标排放</span>
-                <span className="font-medium text-forest-700">{formatEmission(targetEmission)} 吨</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-forest-600">当前净排放</span>
-                <span className="font-medium text-amber-600">{formatEmission(netEmission)} 吨</span>
-              </div>
-              <div className="flex justify-between text-sm border-t border-forest-100 pt-2 mt-2">
-                <span className="text-forest-500">距目标差距</span>
-                <span className={`font-bold ${netEmission <= targetEmission ? "text-forest-600" : "text-amber-600"}`}>
-                  {netEmission <= targetEmission ? "已达成" : `还差 ${formatEmission(remainingGap)} 吨`}
-                </span>
+          {hasTarget ? (
+            <div className="flex flex-col items-center py-4">
+              <ProgressRing
+                percentage={targetCompletion}
+                label="目标完成度"
+                subtitle={`${currentYear}年度`}
+                size={180}
+              />
+              <div className="mt-6 w-full space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-forest-600">基准排放</span>
+                  <span className="font-medium text-slate-850">{formatEmission(baselineEmission!)} 吨</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-forest-600">目标排放</span>
+                  <span className="font-medium text-forest-700">{formatEmission(targetEmission!)} 吨</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-forest-600">当前净排放</span>
+                  <span className="font-medium text-amber-600">{formatEmission(netEmission)} 吨</span>
+                </div>
+                <div className="flex justify-between text-sm border-t border-forest-100 pt-2 mt-2">
+                  <span className="text-forest-500">距目标差距</span>
+                  <span className={`font-bold ${gapFromTarget! <= 0 ? "text-forest-600" : "text-amber-600"}`}>
+                    {gapFromTarget! <= 0
+                      ? `已低于目标 ${formatEmission(Math.abs(gapFromTarget!))} 吨`
+                      : `还需减排 ${formatEmission(gapFromTarget!)} 吨`}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Target className="w-12 h-12 text-forest-300 mb-3" />
+              <p className="text-forest-500 text-sm mb-3">{currentYear}年度尚未设置减排目标</p>
+              <button
+                onClick={() => useCarbonStore.getState().setCurrentYear(currentYear)}
+                className="text-sm text-forest-600 hover:text-forest-700 underline underline-offset-2"
+              >
+                前往目标管理设置
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="card p-6 animate-fade-in-up" style={{ animationDelay: "300ms", opacity: 0 }}>
@@ -283,7 +299,11 @@ export default function Dashboard() {
                     {yoyChange <= 0 ? "呈下降趋势，成效显著" : "呈上升趋势，需加大力度"}
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
-                    距年度目标 {netEmission <= targetEmission ? "已达成！" : `还差 ${formatEmission(remainingGap)} 吨`}
+                    {hasTarget
+                      ? (gapFromTarget! <= 0
+                          ? "已达成年度减排目标"
+                          : `距年度目标还需减排 ${formatEmission(gapFromTarget!)} 吨`)
+                      : `${currentYear}年度暂未设置目标`}
                   </p>
                 </div>
               </div>

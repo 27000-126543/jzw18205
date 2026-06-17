@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Target, Edit3, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { Target, Edit3, AlertTriangle, CheckCircle2, Clock, Plus, X, Check, AlertCircle } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
   filterRecordsByPeriod,
@@ -19,11 +19,19 @@ export default function Targets() {
     reductionMeasures,
     departments,
     currentYear,
+    addAnnualTarget,
     updateAnnualTarget,
   } = useCarbonStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState("");
+  const [showNewTargetModal, setShowNewTargetModal] = useState(false);
+  const [newTargetForm, setNewTargetForm] = useState({
+    baselineEmission: "",
+    targetEmission: "",
+    deptTargets: {} as Record<string, { baseline: string; target: string }>,
+  });
+  const [newTargetErrors, setNewTargetErrors] = useState<Record<string, string>>({});
 
   const companyTarget = useMemo(
     () => annualTargets.find((t) => t.departmentId === "all" && t.year === currentYear),
@@ -33,6 +41,16 @@ export default function Targets() {
   const deptTargets = useMemo(
     () => annualTargets.filter((t) => t.departmentId !== "all" && t.year === currentYear),
     [annualTargets, currentYear]
+  );
+
+  const existingDeptIds = useMemo(
+    () => new Set(deptTargets.map((t) => t.departmentId)),
+    [deptTargets]
+  );
+
+  const departmentsWithoutTarget = useMemo(
+    () => departments.filter((d) => !existingDeptIds.has(d.id)),
+    [departments, existingDeptIds]
   );
 
   const getDeptProgress = (deptId: string, target: typeof annualTargets[0]) => {
@@ -73,6 +91,74 @@ export default function Targets() {
     setEditingId(null);
   };
 
+  const handleOpenNewTarget = () => {
+    setNewTargetForm({
+      baselineEmission: "",
+      targetEmission: "",
+      deptTargets: {},
+    });
+    setNewTargetErrors({});
+    setShowNewTargetModal(true);
+  };
+
+  const validateNewTarget = (): boolean => {
+    const errors: Record<string, string> = {};
+    const base = Number(newTargetForm.baselineEmission);
+    const target = Number(newTargetForm.targetEmission);
+    if (!newTargetForm.baselineEmission || newTargetForm.baselineEmission.trim() === "") {
+      errors.baselineEmission = "请输入基准排放量";
+    } else if (isNaN(base) || base <= 0) {
+      errors.baselineEmission = "基准排放量必须为大于0的数字";
+    }
+    if (!newTargetForm.targetEmission || newTargetForm.targetEmission.trim() === "") {
+      errors.targetEmission = "请输入目标排放量";
+    } else if (isNaN(target) || target <= 0) {
+      errors.targetEmission = "目标排放量必须为大于0的数字";
+    }
+    if (!errors.baselineEmission && !errors.targetEmission && target >= base) {
+      errors.targetEmission = "目标排放量应低于基准排放量";
+    }
+    Object.entries(newTargetForm.deptTargets).forEach(([deptId, dt]) => {
+      const b = Number(dt.baseline);
+      const t = Number(dt.target);
+      if (dt.baseline && (isNaN(b) || b <= 0)) {
+        errors[`dept_baseline_${deptId}`] = "基准排放量必须为大于0的数字";
+      }
+      if (dt.target && (isNaN(t) || t <= 0)) {
+        errors[`dept_target_${deptId}`] = "目标排放量必须为大于0的数字";
+      }
+      if (dt.baseline && dt.target && !isNaN(b) && !isNaN(t) && t >= b) {
+        errors[`dept_target_${deptId}`] = "目标排放量应低于基准排放量";
+      }
+    });
+    setNewTargetErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveNewTarget = () => {
+    if (!validateNewTarget()) return;
+
+    addAnnualTarget({
+      departmentId: "all",
+      year: currentYear,
+      baselineEmissionTonCo2: Number(newTargetForm.baselineEmission),
+      targetEmissionTonCo2: Number(newTargetForm.targetEmission),
+    });
+
+    Object.entries(newTargetForm.deptTargets).forEach(([deptId, dt]) => {
+      if (dt.baseline && dt.target) {
+        addAnnualTarget({
+          departmentId: deptId,
+          year: currentYear,
+          baselineEmissionTonCo2: Number(dt.baseline),
+          targetEmissionTonCo2: Number(dt.target),
+        });
+      }
+    });
+
+    setShowNewTargetModal(false);
+  };
+
   const getStatusInfo = (completion: number) => {
     if (completion >= 80) {
       return { label: "进展良好", color: "text-forest-600", bg: "bg-forest-50", icon: CheckCircle2, border: "border-forest-200" };
@@ -88,19 +174,45 @@ export default function Targets() {
         title="减排目标管理"
         subtitle={`${currentYear}年度企业及各部门减排目标设置与进度追踪`}
         actions={
-          <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-1.5 border border-forest-100">
-            <select
-              value={currentYear}
-              onChange={(e) => useCarbonStore.getState().setCurrentYear(e.target.value)}
-              className="bg-transparent text-forest-700 font-medium focus:outline-none cursor-pointer"
-            >
-              {["2023", "2024", "2025", "2026"].map((y) => (
-                <option key={y} value={y}>{y}年</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3">
+            {!companyTarget && (
+              <button onClick={handleOpenNewTarget} className="btn-primary flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                新增年度目标
+              </button>
+            )}
+            <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-1.5 border border-forest-100">
+              <select
+                value={currentYear}
+                onChange={(e) => useCarbonStore.getState().setCurrentYear(e.target.value)}
+                className="bg-transparent text-forest-700 font-medium focus:outline-none cursor-pointer"
+              >
+                {["2023", "2024", "2025", "2026", "2027"].map((y) => (
+                  <option key={y} value={y}>{y}年</option>
+                ))}
+              </select>
+            </div>
           </div>
         }
       />
+
+      {!companyTarget && (
+        <div className="card p-8 mb-6 animate-fade-in-up text-center" style={{ opacity: 0 }}>
+          <div className="w-16 h-16 rounded-2xl bg-forest-50 flex items-center justify-center mx-auto mb-4">
+            <Target className="w-8 h-8 text-forest-400" />
+          </div>
+          <h3 className="font-display font-bold text-xl text-forest-800 mb-2">
+            {currentYear}年度尚未设置减排目标
+          </h3>
+          <p className="text-forest-500 mb-5">
+            请为{currentYear}年度设定基准排放量和目标排放量，系统将据此追踪减排进度
+          </p>
+          <button onClick={handleOpenNewTarget} className="btn-primary inline-flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            新增{currentYear}年度目标
+          </button>
+        </div>
+      )}
 
       {companyTarget && (
         <div className="card p-8 mb-6 animate-fade-in-up" style={{ opacity: 0 }}>
@@ -274,6 +386,122 @@ export default function Targets() {
           );
         })}
       </div>
+
+      {showNewTargetModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in-up">
+            <div className="p-6 border-b border-forest-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="font-display font-bold text-xl text-forest-800">
+                新增{currentYear}年度减排目标
+              </h3>
+              <button onClick={() => setShowNewTargetModal(false)} className="p-2 rounded-lg hover:bg-forest-50 text-forest-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="p-5 rounded-xl bg-forest-50/50 border border-forest-100">
+                <h4 className="font-display font-bold text-lg text-forest-800 mb-4 flex items-center gap-2">
+                  <Target className="w-5 h-5 text-forest-600" />
+                  企业整体目标
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">基准排放量（吨CO₂e） <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newTargetForm.baselineEmission}
+                      onChange={(e) => setNewTargetForm({ ...newTargetForm, baselineEmission: e.target.value })}
+                      placeholder="例如：3500"
+                      className={`input-field ${newTargetErrors.baselineEmission ? "border-red-400" : ""}`}
+                    />
+                    {newTargetErrors.baselineEmission && (
+                      <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{newTargetErrors.baselineEmission}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label">目标排放量（吨CO₂e） <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newTargetForm.targetEmission}
+                      onChange={(e) => setNewTargetForm({ ...newTargetForm, targetEmission: e.target.value })}
+                      placeholder="例如：2800"
+                      className={`input-field ${newTargetErrors.targetEmission ? "border-red-400" : ""}`}
+                    />
+                    {newTargetErrors.targetEmission && (
+                      <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{newTargetErrors.targetEmission}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-display font-bold text-lg text-forest-800 mb-3">部门分解目标（可选）</h4>
+                <p className="text-sm text-forest-500 mb-4">
+                  为各部门设定基准和目标排放量，未设定的部门将不生成部门目标
+                </p>
+                <div className="space-y-3">
+                  {departmentsWithoutTarget.map((dept) => {
+                    const dt = newTargetForm.deptTargets[dept.id] || { baseline: "", target: "" };
+                    return (
+                      <div key={dept.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
+                        <span className="font-medium text-slate-850 w-28 flex-shrink-0">{dept.name}</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={dt.baseline}
+                          onChange={(e) => setNewTargetForm({
+                            ...newTargetForm,
+                            deptTargets: {
+                              ...newTargetForm.deptTargets,
+                              [dept.id]: { ...dt, baseline: e.target.value },
+                            },
+                          })}
+                          placeholder="基准排放"
+                          className={`input-field flex-1 text-sm ${newTargetErrors[`dept_baseline_${dept.id}`] ? "border-red-400" : ""}`}
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={dt.target}
+                          onChange={(e) => setNewTargetForm({
+                            ...newTargetForm,
+                            deptTargets: {
+                              ...newTargetForm.deptTargets,
+                              [dept.id]: { ...dt, target: e.target.value },
+                            },
+                          })}
+                          placeholder="目标排放"
+                          className={`input-field flex-1 text-sm ${newTargetErrors[`dept_target_${dept.id}`] ? "border-red-400" : ""}`}
+                        />
+                        {newTargetErrors[`dept_target_${dept.id}`] && (
+                          <span className="text-xs text-red-500 flex-shrink-0">{newTargetErrors[`dept_target_${dept.id}`]}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-forest-100 flex justify-end gap-3 sticky bottom-0 bg-white">
+              <button onClick={() => setShowNewTargetModal(false)} className="btn-secondary">
+                取消
+              </button>
+              <button onClick={handleSaveNewTarget} className="btn-primary flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                保存目标
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
