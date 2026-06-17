@@ -4,7 +4,7 @@ import { useCarbonStore } from "@/store";
 import {
   filterRecordsByPeriod,
   calculateTotalEmission,
-  calculateTotalOffset,
+  calculateOffsetByPeriod,
   calculateNetEmission,
   calculateTargetCompletion,
 } from "@/utils/calculator";
@@ -40,8 +40,9 @@ export default function Targets() {
       (r) => r.departmentId === deptId
     );
     const total = calculateTotalEmission(records);
-    const offset = calculateTotalOffset(
-      reductionMeasures.filter((m) => m.departmentId === deptId)
+    const offset = calculateOffsetByPeriod(
+      reductionMeasures.filter((m) => m.departmentId === deptId),
+      currentYear
     );
     const net = calculateNetEmission(total, offset);
     const completion = calculateTargetCompletion(target, net);
@@ -49,10 +50,10 @@ export default function Targets() {
   };
 
   const companyProgress = useMemo(() => {
-    if (!companyTarget) return { actual: 0, completion: 65 };
+    if (!companyTarget) return { actual: 0, completion: 0 };
     const records = filterRecordsByPeriod(emissionRecords, currentYear);
     const total = calculateTotalEmission(records);
-    const offset = calculateTotalOffset(reductionMeasures);
+    const offset = calculateOffsetByPeriod(reductionMeasures, currentYear);
     const net = calculateNetEmission(total, offset);
     return { actual: net, completion: calculateTargetCompletion(companyTarget, net) };
   }, [companyTarget, emissionRecords, reductionMeasures, currentYear]);
@@ -63,7 +64,12 @@ export default function Targets() {
   };
 
   const handleSave = (id: string) => {
-    updateAnnualTarget(id, { targetEmissionTonCo2: Number(editTarget) });
+    const val = Number(editTarget);
+    if (isNaN(val) || val <= 0) {
+      alert("目标排放量必须为大于0的数字");
+      return;
+    }
+    updateAnnualTarget(id, { targetEmissionTonCo2: val });
     setEditingId(null);
   };
 

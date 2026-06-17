@@ -1,10 +1,20 @@
 import React, { useMemo } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { TrendingUp, TrendingDown, BarChart3, ArrowRight } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
   filterRecordsByPeriod,
   calculateTotalEmission,
-  calculateTotalOffset,
+  calculateOffsetByPeriod,
   calculateNetEmission,
   calculateYoYChange,
 } from "@/utils/calculator";
@@ -12,7 +22,6 @@ import { formatEmission, formatPercentage } from "@/utils/format";
 import PageHeader from "@/components/ui/PageHeader";
 import StatCard from "@/components/ui/StatCard";
 import YearlyCompareChart from "@/components/charts/YearlyCompareChart";
-import TrendLineChart from "@/components/charts/TrendLineChart";
 
 export default function History() {
   const { emissionRecords, reductionMeasures, annualTargets } = useCarbonStore();
@@ -22,7 +31,7 @@ export default function History() {
     return years.map((year) => {
       const records = filterRecordsByPeriod(emissionRecords, year);
       const total = calculateTotalEmission(records);
-      const offset = year === "2025" ? calculateTotalOffset(reductionMeasures) : total * 0.05;
+      const offset = calculateOffsetByPeriod(reductionMeasures, year);
       const net = calculateNetEmission(total, offset);
       return {
         year,
@@ -40,7 +49,7 @@ export default function History() {
       const result: any = { month: m };
       years.forEach((year) => {
         const records = filterRecordsByPeriod(emissionRecords, year, month);
-        result[`y${year}`] = Number(calculateTotalEmission(records).toFixed(2));
+        result[year] = Number(calculateTotalEmission(records).toFixed(2));
       });
       return result;
     });
@@ -50,7 +59,16 @@ export default function History() {
     const latest = yearlyData[yearlyData.length - 1];
     const previous = yearlyData[yearlyData.length - 2];
     const oldest = yearlyData[0];
-
+    if (!latest || !previous || !oldest) {
+      return {
+        yoyChange: 0,
+        totalReduction: 0,
+        reductionRate: 0,
+        avgReductionPerYear: 0,
+        latestNet: 0,
+        oldestNet: 0,
+      };
+    }
     const yoyChange = calculateYoYChange(latest.netEmission, previous.netEmission);
     const totalReduction = oldest.netEmission - latest.netEmission;
     const reductionRate = oldest.netEmission > 0 ? (totalReduction / oldest.netEmission * 100) : 0;
@@ -84,6 +102,7 @@ export default function History() {
   }, [yearlyData]);
 
   const trendColor = stats.yoyChange <= 0 ? "from-forest-600 to-forest-400" : "from-amber-600 to-amber-400";
+  const lineColors = ["#1b4332", "#d4a373", "#52b788"];
 
   return (
     <div>
@@ -140,13 +159,51 @@ export default function History() {
           <h3 className="font-display font-bold text-lg text-forest-800 mb-1">月度排放趋势对比</h3>
           <p className="text-sm text-forest-500 mb-5">各年度月度排放量对比</p>
           <div className="h-[320px]">
-            <TrendLineChart data={[]} height={320} showLastYear={false} />
-            <div className="h-full w-full" style={{ marginTop: -320 }}>
-              <svg style={{ display: "none" }}>
-                <defs></defs>
-              </svg>
-              <MultiYearLineChart data={multiYearTrend} years={years} />
-            </div>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={multiYearTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#daede3" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  stroke="#85c0a3"
+                  tick={{ fill: "#1b4332", fontSize: 12 }}
+                  axisLine={{ stroke: "#b6dac7" }}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#85c0a3"
+                  tick={{ fill: "#1b4332", fontSize: 12 }}
+                  axisLine={{ stroke: "#b6dac7" }}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #daede3",
+                    borderRadius: "12px",
+                    padding: "12px",
+                  }}
+                  formatter={(value: number, name: string) => [`${formatEmission(value)} 吨`, `${name}年`]}
+                />
+                <Legend
+                  wrapperStyle={{ paddingTop: "16px" }}
+                  iconType="circle"
+                  formatter={(value: string) => <span className="text-sm text-slate-850">{value}年</span>}
+                />
+                {years.map((year, idx) => (
+                  <Line
+                    key={year}
+                    type="monotone"
+                    dataKey={year}
+                    name={year}
+                    stroke={lineColors[idx % lineColors.length]}
+                    strokeWidth={idx === years.length - 1 ? 3 : 2}
+                    strokeDasharray={idx === years.length - 1 ? "0" : "5 5"}
+                    dot={{ fill: lineColors[idx % lineColors.length], r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
@@ -257,57 +314,5 @@ export default function History() {
         </div>
       </div>
     </div>
-  );
-}
-
-function MultiYearLineChart({ data, years }: { data: any[]; years: string[] }) {
-  const colors = ["#1b4332", "#d4a373", "#52b788"];
-  const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area } = require("recharts");
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#daede3" vertical={false} />
-        <XAxis
-          dataKey="month"
-          stroke="#85c0a3"
-          tick={{ fill: "#1b4332", fontSize: 12 }}
-          axisLine={{ stroke: "#b6dac7" }}
-          tickLine={false}
-        />
-        <YAxis
-          stroke="#85c0a3"
-          tick={{ fill: "#1b4332", fontSize: 12 }}
-          axisLine={{ stroke: "#b6dac7" }}
-          tickLine={false}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "white",
-            border: "1px solid #daede3",
-            borderRadius: "12px",
-            padding: "12px",
-          }}
-        />
-        <Legend
-          wrapperStyle={{ paddingTop: "16px" }}
-          iconType="circle"
-          formatter={(value: string) => <span className="text-sm text-slate-850">{value}年</span>}
-        />
-        {years.map((year, idx) => (
-          <Line
-            key={year}
-            type="monotone"
-            dataKey={`y${year}`}
-            name={year}
-            stroke={colors[idx % colors.length]}
-            strokeWidth={idx === years.length - 1 ? 3 : 2}
-            strokeDasharray={idx === years.length - 1 ? "0" : "5 5"}
-            dot={{ fill: colors[idx % colors.length], r: 3 }}
-            activeDot={{ r: 5 }}
-          />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
   );
 }

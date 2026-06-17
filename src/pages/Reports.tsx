@@ -4,7 +4,7 @@ import { useCarbonStore } from "@/store";
 import {
   filterRecordsByPeriod,
   calculateTotalEmission,
-  calculateTotalOffset,
+  calculateOffsetByPeriod,
   calculateNetEmission,
   calculateYoYChange,
   aggregateBySource,
@@ -52,7 +52,7 @@ export default function Reports() {
 
     const total = calculateTotalEmission(yearRecords);
     const lastTotal = calculateTotalEmission(lastYearRecords);
-    const offset = calculateTotalOffset(reductionMeasures);
+    const offset = calculateOffsetByPeriod(reductionMeasures, report.year, report.quarter);
     const net = calculateNetEmission(total, offset);
     const yoy = calculateYoYChange(total, lastTotal);
 

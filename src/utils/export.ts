@@ -7,7 +7,112 @@ import type {
   ReportFramework,
 } from "@/types";
 import { emissionSources, emissionCategories } from "@/data/factors";
+import { calculateEmission } from "./calculator";
 import { formatDate } from "./format";
+
+export interface ImportRow {
+  部门?: string;
+  排放源?: string;
+  排放源名称?: string;
+  活动数据?: number | string;
+  数量?: number | string;
+  年份?: string | number;
+  所属年份?: string | number;
+  月份?: string | number;
+  所属月份?: string | number;
+  日期?: string;
+  记录日期?: string;
+  备注?: string;
+  [key: string]: any;
+}
+
+export interface ImportResult {
+  success: Omit<EmissionRecord, "id" | "emissionTonCo2">[];
+  errors: { row: number; message: string }[];
+  count: number;
+}
+
+export function importEmissionRecordsFromExcel(
+  file: File,
+  departments: { id: string; name: string; regionId?: string }[]
+): Promise<ImportResult> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<ImportRow>(ws);
+
+        const deptNameToId = new Map(departments.map((d) => [d.name.trim(), d.id]));
+        const sourceNameToId = new Map(emissionSources.map((s) => [s.name.trim(), s.id]));
+        const sourceUnitToId = new Map(
+          emissionSources.map((s) => [`${s.name}(${s.unit})`.trim(), s.id])
+        );
+
+        const success: Omit<EmissionRecord, "id" | "emissionTonCo2">[] = [];
+        const errors: { row: number; message: string }[] = [];
+
+        rows.forEach((row, idx) => {
+          const rowNum = idx + 2;
+          try {
+            const deptName = (row["部门"] || "").toString().trim();
+            const sourceName = (row["排放源"] || row["排放源名称"] || "").toString().trim();
+            let quantityRaw = row["活动数据"] ?? row["数量"] ?? "";
+            const year = (row["年份"] || row["所属年份"] || new Date().getFullYear()).toString();
+            const month = (row["月份"] || row["所属月份"] || new Date().getMonth() + 1).toString();
+            const recordDate = (row["日期"] || row["记录日期"] || new Date().toISOString().slice(0, 10)).toString().trim();
+            const remark = row["备注"]?.toString().trim() || "";
+
+            const departmentId = deptNameToId.get(deptName);
+            if (!departmentId) {
+              errors.push({ row: rowNum, message: `部门"${deptName}"不存在，请先在系统中创建` });
+              return;
+            }
+
+            let sourceId = sourceNameToId.get(sourceName) || sourceUnitToId.get(sourceName);
+            if (!sourceId) {
+              const found = emissionSources.find((s) => sourceName.includes(s.name) || s.name.includes(sourceName));
+              sourceId = found?.id;
+            }
+            if (!sourceId) {
+              errors.push({ row: rowNum, message: `排放源"${sourceName}"不匹配，请参考模板中的排放源名称` });
+              return;
+            }
+
+            const quantity = typeof quantityRaw === "number" ? quantityRaw : Number(String(quantityRaw).replace(/[,，]/g, ""));
+            if (!quantity || quantity <= 0 || isNaN(quantity)) {
+              errors.push({ row: rowNum, message: `活动数据"${quantityRaw}"无效，必须为大于0的数字` });
+              return;
+            }
+
+            const regionId = departments.find((d) => d.id === departmentId)?.regionId || "bj";
+
+            success.push({
+              departmentId,
+              regionId,
+              sourceId,
+              quantity,
+              periodYear: year,
+              periodMonth: month,
+              recordDate: recordDate || `${year}-${String(month).padStart(2, "0")}-01`,
+              remark,
+            });
+          } catch (err: any) {
+            errors.push({ row: rowNum, message: err.message || "解析失败" });
+          }
+        });
+
+        resolve({ success, errors, count: success.length });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsArrayBuffer(file);
+  });
+}
 
 const griDisclosures = [
   { disclosure: "GRI 302-1", description: "组织范围内的能源消耗" },
@@ -160,22 +265,54 @@ export function exportReport(report: EsgReport, summary: ReportSummary, framewor
 }
 
 export function downloadTemplate(): void {
+  const dataRows = [
+    {
+      部门: "技术研发部",
+      排放源: "电力",
+      活动数据: 15000,
+      年份: new Date().getFullYear(),
+      月份: 1,
+      日期: `${new Date().getFullYear()}-01-15`,
+      备注: "1月办公用电",
+    },
+    {
+      部门: "市场营销部",
+      排放源: "航空-国内",
+      活动数据: 3500,
+      年份: new Date().getFullYear(),
+      月份: 1,
+      日期: `${new Date().getFullYear()}-01-20`,
+      备注: "出差飞行里程",
+    },
+  ];
+  const templateWs = XLSX.utils.json_to_sheet(dataRows);
+  templateWs["!cols"] = [
+    { wch: 15 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 14 },
+    { wch: 25 },
+  ];
+
   const categoryNames: Record<string, string> = {
     energy: "能源消耗",
     transport: "差旅交通",
     materials: "办公耗材",
     waste: "废弃物处理",
   };
-  const templateData = emissionSources.map((s) => ({
+  const refData = emissionSources.map((s) => ({
     排放源类别: categoryNames[s.category] || "",
     排放源名称: s.name,
     单位: s.unit,
     碳排放因子_kgCO2e: s.factorKgCo2PerUnit,
-    活动数据示例: Math.floor(Math.random() * 1000),
   }));
-  const ws = XLSX.utils.json_to_sheet(templateData);
-  ws["!cols"] = [{ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 15 }];
+  const refWs = XLSX.utils.json_to_sheet(refData);
+  refWs["!cols"] = [{ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 18 }];
+
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "数据录入模板");
+  XLSX.utils.book_append_sheet(wb, templateWs, "数据录入模板");
+  XLSX.utils.book_append_sheet(wb, refWs, "排放源参考");
   XLSX.writeFile(wb, "碳排放数据录入模板.xlsx");
 }

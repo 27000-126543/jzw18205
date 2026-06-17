@@ -1,10 +1,15 @@
-import React, { useState, useMemo } from "react";
-import { Plus, Download, Search, Pencil, Trash2, X, Check } from "lucide-react";
+import React, { useState, useMemo, useRef } from "react";
+import { Plus, Download, Search, Pencil, Trash2, X, Check, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import { emissionSources, emissionCategories } from "@/data/factors";
 import { calculateEmission } from "@/utils/calculator";
 import { formatDate, formatEmissionFull } from "@/utils/format";
-import { downloadTemplate, exportEmissionRecordsToExcel } from "@/utils/export";
+import {
+  downloadTemplate,
+  exportEmissionRecordsToExcel,
+  importEmissionRecordsFromExcel,
+  type ImportResult,
+} from "@/utils/export";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { EmissionRecord } from "@/types";
@@ -16,6 +21,11 @@ export default function DataEntry() {
   const [searchText, setSearchText] = useState("");
   const [filterDept, setFilterDept] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [showImportResult, setShowImportResult] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     departmentId: "",
@@ -51,7 +61,25 @@ export default function DataEntry() {
       .slice(0, 50);
   }, [emissionRecords, departments, filterDept, filterCategory, searchText, sourceCategoryMap]);
 
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!formData.departmentId) errors.departmentId = "请选择所属部门";
+    if (!formData.sourceId) errors.sourceId = "请选择排放源";
+    const qty = Number(formData.quantity);
+    if (!formData.quantity || formData.quantity.trim() === "") {
+      errors.quantity = "请输入活动数据";
+    } else if (isNaN(qty) || qty <= 0) {
+      errors.quantity = "活动数据必须为大于0的数字";
+    }
+    if (!formData.periodYear) errors.periodYear = "请选择年份";
+    if (!formData.periodMonth) errors.periodMonth = "请选择月份";
+    if (!formData.recordDate) errors.recordDate = "请选择记录日期";
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleOpenModal = (record?: EmissionRecord) => {
+    setFormErrors({});
     if (record) {
       setEditingRecord(record);
       setFormData({
@@ -79,28 +107,52 @@ export default function DataEntry() {
   };
 
   const handleSubmit = () => {
-    if (!formData.departmentId || !formData.sourceId || !formData.quantity) return;
+    if (!validateForm()) return;
 
     const regionId = departments.find((d) => d.id === formData.departmentId)?.regionId || "bj";
+    const quantity = Number(formData.quantity);
 
     if (editingRecord) {
       updateEmissionRecord(editingRecord.id, {
         ...formData,
-        quantity: Number(formData.quantity),
+        quantity,
         regionId,
       });
     } else {
       addEmissionRecord({
         ...formData,
-        quantity: Number(formData.quantity),
+        quantity,
         regionId,
       });
     }
     setShowModal(false);
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const result = await importEmissionRecordsFromExcel(file, departments);
+      result.success.forEach((record) => addEmissionRecord(record));
+      setImportResult(result);
+      setShowImportResult(true);
+    } catch (err: any) {
+      alert(`导入失败：${err.message || "未知错误"}`);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const selectedSource = emissionSources.find((s) => s.id === formData.sourceId);
-  const estimatedEmission = formData.quantity && selectedSource
+  const estimatedEmission = formData.quantity && selectedSource && !isNaN(Number(formData.quantity)) && Number(formData.quantity) > 0
     ? calculateEmission(formData.sourceId, Number(formData.quantity))
     : 0;
 
@@ -115,6 +167,21 @@ export default function DataEntry() {
               <Download className="w-4 h-4" />
               下载模板
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={handleImportClick}
+              disabled={importing}
+              className="btn-secondary flex items-center gap-2 disabled:opacity-60"
+            >
+              <Upload className="w-4 h-4" />
+              {importing ? "导入中..." : "导入Excel"}
+            </button>
             <button onClick={() => exportEmissionRecordsToExcel(emissionRecords, departments)} className="btn-secondary flex items-center gap-2">
               <Download className="w-4 h-4" />
               导出数据
@@ -126,6 +193,50 @@ export default function DataEntry() {
           </>
         }
       />
+
+      {showImportResult && importResult && (
+        <div className="mb-5 animate-fade-in-up">
+          <div className="card p-5 border-l-4 border-forest-500">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-forest-100 flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5 text-forest-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-display font-bold text-lg text-forest-800">导入完成</h4>
+                    <p className="text-sm text-forest-600">
+                      成功导入 <span className="font-bold text-forest-700">{importResult.count}</span> 条记录
+                      {importResult.errors.length > 0 && (
+                        <span className="ml-3">，<span className="font-bold text-amber-600">{importResult.errors.length}</span> 条数据存在问题</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {importResult.errors.length > 0 && (
+                  <div className="mt-3 p-4 rounded-xl bg-amber-50 border border-amber-200 max-h-48 overflow-y-auto">
+                    <p className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4" />
+                      以下行未成功导入：
+                    </p>
+                    <ul className="space-y-1 text-xs text-amber-700">
+                      {importResult.errors.map((e, idx) => (
+                        <li key={idx}>第 {e.row} 行：{e.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => { setShowImportResult(false); setImportResult(null); }}
+                className="p-2 rounded-lg hover:bg-forest-50 text-forest-500 flex-shrink-0 ml-3"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card p-4 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -152,7 +263,7 @@ export default function DataEntry() {
             ))}
           </select>
           <div className="text-sm text-forest-600 flex items-center justify-end">
-            共 {filteredRecords.length} 条记录
+            共 <span className="font-bold text-forest-700">{filteredRecords.length}</span> 条记录
           </div>
         </div>
       </div>
@@ -218,8 +329,8 @@ export default function DataEntry() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-fade-in-up">
-            <div className="p-6 border-b border-forest-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-fade-in-up max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-forest-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <h3 className="font-display font-bold text-xl text-forest-800">
                 {editingRecord ? "编辑排放记录" : "新增排放记录"}
               </h3>
@@ -231,46 +342,69 @@ export default function DataEntry() {
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">所属部门</label>
+                  <label className="label">
+                    所属部门 <span className="text-red-500">*</span>
+                  </label>
                   <select
                     value={formData.departmentId}
                     onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
-                    className="input-field"
+                    className={`input-field ${formErrors.departmentId ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   >
                     <option value="">请选择部门</option>
                     {departments.map((d) => (
                       <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
+                  {formErrors.departmentId && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />{formErrors.departmentId}
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="label">排放源</label>
+                  <label className="label">
+                    排放源 <span className="text-red-500">*</span>
+                  </label>
                   <select
                     value={formData.sourceId}
                     onChange={(e) => setFormData({ ...formData, sourceId: e.target.value })}
-                    className="input-field"
+                    className={`input-field ${formErrors.sourceId ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   >
                     <option value="">请选择排放源</option>
                     {emissionSources.map((s) => (
                       <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>
                     ))}
                   </select>
+                  {formErrors.sourceId && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />{formErrors.sourceId}
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div>
-                <label className="label">活动数据 {selectedSource && `(${selectedSource.unit})`}</label>
+                <label className="label">
+                  活动数据 {selectedSource && `(${selectedSource.unit})`} <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="number"
+                  step="any"
+                  min="0"
                   value={formData.quantity}
                   onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  placeholder="请输入活动数据量"
-                  className="input-field"
+                  placeholder="请输入活动数据量（必须大于0）"
+                  className={`input-field ${formErrors.quantity ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                 />
                 {estimatedEmission > 0 && (
                   <p className="mt-2 text-sm text-amber-600">
                     ≈ 预计排放 {formatEmissionFull(estimatedEmission)} 吨CO₂e
                     （因子：{selectedSource?.factorKgCo2PerUnit} kgCO₂e/{selectedSource?.unit}）
+                  </p>
+                )}
+                {formErrors.quantity && (
+                  <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />{formErrors.quantity}
                   </p>
                 )}
               </div>
@@ -323,7 +457,7 @@ export default function DataEntry() {
               </div>
             </div>
 
-            <div className="p-6 border-t border-forest-100 flex justify-end gap-3">
+            <div className="p-6 border-t border-forest-100 flex justify-end gap-3 sticky bottom-0 bg-white">
               <button onClick={() => setShowModal(false)} className="btn-secondary">
                 取消
               </button>

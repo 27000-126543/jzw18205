@@ -20,6 +20,40 @@ export function calculateTotalOffset(measures: ReductionMeasure[]): number {
   );
 }
 
+export function filterMeasuresByPeriod(
+  measures: ReductionMeasure[],
+  year: string,
+  quarter?: number
+): ReductionMeasure[] {
+  return measures.filter((m) => {
+    if (m.status === "planning") return false;
+    const startYear = m.startDate.slice(0, 4);
+    const endYear = m.endDate.slice(0, 4);
+    if (startYear > year || endYear < year) return false;
+    if (quarter) {
+      const startMonth = Number(m.startDate.slice(5, 7));
+      const endMonth = Number(m.endDate.slice(5, 7));
+      const startQ = Math.ceil(startMonth / 3) || 1;
+      const endQ = Math.ceil(endMonth / 3) || 4;
+      if (startYear === year && endYear === year) {
+        return quarter >= startQ && quarter <= endQ;
+      }
+      if (startYear === year) return quarter >= startQ;
+      if (endYear === year) return quarter <= endQ;
+    }
+    return true;
+  });
+}
+
+export function calculateOffsetByPeriod(
+  measures: ReductionMeasure[],
+  year: string,
+  quarter?: number
+): number {
+  const filtered = filterMeasuresByPeriod(measures, year, quarter);
+  return calculateTotalOffset(filtered);
+}
+
 export function calculateNetEmission(
   totalEmission: number,
   totalOffset: number

@@ -3,7 +3,7 @@ import { Zap, Target, Leaf, TrendingDown, Factory } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
   calculateTotalEmission,
-  calculateTotalOffset,
+  calculateOffsetByPeriod,
   calculateNetEmission,
   filterRecordsByPeriod,
   calculateYoYChange,
@@ -26,7 +26,13 @@ export default function Dashboard() {
     annualTargets,
     departments,
     currentYear,
+    setCurrentYear,
   } = useCarbonStore();
+
+  const companyTarget = useMemo(
+    () => annualTargets.find((t) => t.departmentId === "all" && t.year === currentYear),
+    [annualTargets, currentYear]
+  );
 
   const {
     totalEmission,
@@ -42,12 +48,11 @@ export default function Dashboard() {
       String(Number(currentYear) - 1)
     );
     const total = calculateTotalEmission(currentRecords);
-    const offset = calculateTotalOffset(reductionMeasures);
+    const offset = calculateOffsetByPeriod(reductionMeasures, currentYear);
     const net = calculateNetEmission(total, offset);
     const lastTotal = calculateTotalEmission(lastYearRecords);
     const yoy = calculateYoYChange(total, lastTotal);
-    const companyTarget = annualTargets.find((t) => t.departmentId === "all" && t.year === currentYear);
-    const completion = companyTarget ? calculateTargetCompletion(companyTarget, net) : 65;
+    const completion = companyTarget ? calculateTargetCompletion(companyTarget, net) : 0;
 
     return {
       totalEmission: total,
@@ -57,7 +62,7 @@ export default function Dashboard() {
       yoyChange: yoy,
       targetCompletion: completion,
     };
-  }, [emissionRecords, reductionMeasures, annualTargets, currentYear]);
+  }, [emissionRecords, reductionMeasures, currentYear, companyTarget]);
 
   const trendData = useMemo(() => {
     const months = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
@@ -104,6 +109,14 @@ export default function Dashboard() {
     return sources[0];
   }, [emissionRecords, currentYear]);
 
+  const baselineEmission = companyTarget?.baselineEmissionTonCo2 ?? 3500;
+  const targetEmission = companyTarget?.targetEmissionTonCo2 ?? 2800;
+  const remainingGap = Math.max(0, targetEmission - netEmission);
+  const activeInProgress = reductionMeasures.filter((m) => m.status === "in_progress").length;
+  const totalInProgressOffset = reductionMeasures
+    .filter((m) => m.status !== "planning")
+    .reduce((s, m) => s + m.offsetTonCo2, 0);
+
   return (
     <div>
       <PageHeader
@@ -113,10 +126,10 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-1.5 border border-forest-100">
             <select
               value={currentYear}
-              onChange={(e) => useCarbonStore.getState().setCurrentYear(e.target.value)}
+              onChange={(e) => setCurrentYear(e.target.value)}
               className="bg-transparent text-forest-700 font-medium focus:outline-none cursor-pointer"
             >
-              {["2023", "2024", "2025"].map((y) => (
+              {["2023", "2024", "2025", "2026"].map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>
@@ -175,15 +188,21 @@ export default function Dashboard() {
             <div className="mt-6 w-full space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-forest-600">基准排放</span>
-                <span className="font-medium text-slate-850">{formatEmission(3500)} 吨</span>
+                <span className="font-medium text-slate-850">{formatEmission(baselineEmission)} 吨</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-forest-600">目标排放</span>
-                <span className="font-medium text-forest-700">{formatEmission(2800)} 吨</span>
+                <span className="font-medium text-forest-700">{formatEmission(targetEmission)} 吨</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-forest-600">当前净排放</span>
                 <span className="font-medium text-amber-600">{formatEmission(netEmission)} 吨</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-forest-100 pt-2 mt-2">
+                <span className="text-forest-500">距目标差距</span>
+                <span className={`font-bold ${netEmission <= targetEmission ? "text-forest-600" : "text-amber-600"}`}>
+                  {netEmission <= targetEmission ? "已达成" : `还差 ${formatEmission(remainingGap)} 吨`}
+                </span>
               </div>
             </div>
           </div>
@@ -244,10 +263,10 @@ export default function Dashboard() {
                 <div>
                   <p className="font-medium text-forest-800">进行中减排项目</p>
                   <p className="text-sm text-forest-700 mt-0.5">
-                    {reductionMeasures.filter((m) => m.status === "in_progress").length} 个项目正在执行
+                    {activeInProgress} 个项目正在执行
                   </p>
                   <p className="text-xs text-forest-600 mt-1">
-                    预计可抵消 {formatEmission(reductionMeasures.filter((m) => m.status !== "planning").reduce((s, m) => s + m.offsetTonCo2, 0))} 吨
+                    预计可抵消 {formatEmission(totalInProgressOffset)} 吨
                   </p>
                 </div>
               </div>
@@ -264,7 +283,7 @@ export default function Dashboard() {
                     {yoyChange <= 0 ? "呈下降趋势，成效显著" : "呈上升趋势，需加大力度"}
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
-                    距年度目标还差 {formatEmission(Math.max(0, 2800 - netEmission))} 吨
+                    距年度目标 {netEmission <= targetEmission ? "已达成！" : `还差 ${formatEmission(remainingGap)} 吨`}
                   </p>
                 </div>
               </div>

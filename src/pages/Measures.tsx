@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Download, Pencil, Trash2, X, Check, Leaf, Zap, TreePine, Coins, Wrench } from "lucide-react";
+import { Plus, Download, Pencil, Trash2, X, Check, Leaf, Zap, TreePine, Coins, Wrench, AlertCircle } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import { calculateTotalOffset } from "@/utils/calculator";
 import { formatDate, formatEmission, formatCurrency } from "@/utils/format";
@@ -23,6 +23,7 @@ export default function Measures() {
   const [editingMeasure, setEditingMeasure] = useState<ReductionMeasure | null>(null);
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState<{
     name: string;
@@ -70,7 +71,31 @@ export default function Measures() {
       .sort((a, b) => b.offsetTonCo2 - a.offsetTonCo2);
   }, [reductionMeasures, filterType, filterStatus]);
 
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!formData.name.trim()) errors.name = "请输入项目名称";
+    if (!formData.departmentId) errors.departmentId = "请选择负责部门";
+    const offset = Number(formData.offsetTonCo2);
+    if (!formData.offsetTonCo2 || formData.offsetTonCo2.trim() === "") {
+      errors.offsetTonCo2 = "请输入抵消量";
+    } else if (isNaN(offset) || offset <= 0) {
+      errors.offsetTonCo2 = "抵消量必须为大于0的数字";
+    }
+    if (!formData.startDate) errors.startDate = "请选择开始日期";
+    if (!formData.endDate) errors.endDate = "请选择结束日期";
+    if (formData.startDate && formData.endDate && formData.startDate > formData.endDate) {
+      errors.endDate = "结束日期不能早于开始日期";
+    }
+    if (formData.cost && formData.cost.trim() !== "") {
+      const cost = Number(formData.cost);
+      if (isNaN(cost) || cost < 0) errors.cost = "成本不能为负数";
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleOpenModal = (measure?: ReductionMeasure) => {
+    setFormErrors({});
     if (measure) {
       setEditingMeasure(measure);
       setFormData({
@@ -102,7 +127,7 @@ export default function Measures() {
   };
 
   const handleSubmit = () => {
-    if (!formData.name || !formData.offsetTonCo2 || !formData.departmentId) return;
+    if (!validateForm()) return;
 
     if (editingMeasure) {
       updateReductionMeasure(editingMeasure.id, {
@@ -279,14 +304,17 @@ export default function Measures() {
 
             <div className="p-6 space-y-4">
               <div>
-                <label className="label">项目名称</label>
+                <label className="label">项目名称 <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="请输入项目名称"
-                  className="input-field"
+                  className={`input-field ${formErrors.name ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                 />
+                {formErrors.name && (
+                  <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.name}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -318,49 +346,62 @@ export default function Measures() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">负责部门</label>
+                  <label className="label">负责部门 <span className="text-red-500">*</span></label>
                   <select
                     value={formData.departmentId}
                     onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
-                    className="input-field"
+                    className={`input-field ${formErrors.departmentId ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   >
                     <option value="">请选择部门</option>
                     {departments.map((d) => (
                       <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
+                  {formErrors.departmentId && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.departmentId}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="label">抵消量（吨CO₂e）</label>
+                  <label className="label">抵消量（吨CO₂e） <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.offsetTonCo2}
                     onChange={(e) => setFormData({ ...formData, offsetTonCo2: e.target.value })}
-                    placeholder="请输入预计抵消量"
-                    className="input-field"
+                    placeholder="请输入预计抵消量（大于0）"
+                    className={`input-field ${formErrors.offsetTonCo2 ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   />
+                  {formErrors.offsetTonCo2 && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.offsetTonCo2}</p>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">开始日期</label>
+                  <label className="label">开始日期 <span className="text-red-500">*</span></label>
                   <input
                     type="date"
                     value={formData.startDate}
                     onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                    className="input-field"
+                    className={`input-field ${formErrors.startDate ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   />
+                  {formErrors.startDate && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.startDate}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="label">结束日期</label>
+                  <label className="label">结束日期 <span className="text-red-500">*</span></label>
                   <input
                     type="date"
                     value={formData.endDate}
                     onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    className="input-field"
+                    className={`input-field ${formErrors.endDate ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                   />
+                  {formErrors.endDate && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.endDate}</p>
+                  )}
                 </div>
               </div>
 
@@ -368,11 +409,15 @@ export default function Measures() {
                 <label className="label">投入成本（元，可选）</label>
                 <input
                   type="number"
+                  min="0"
                   value={formData.cost}
                   onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                  placeholder="请输入项目投入成本"
-                  className="input-field"
+                  placeholder="请输入项目投入成本（≥0）"
+                  className={`input-field ${formErrors.cost ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
                 />
+                {formErrors.cost && (
+                  <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.cost}</p>
+                )}
               </div>
 
               <div>
