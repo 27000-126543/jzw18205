@@ -87,6 +87,41 @@ export function importEmissionRecordsFromExcel(
               return;
             }
 
+            const yearNum = Number(year);
+            const monthNum = Number(month);
+            if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+              errors.push({ row: rowNum, message: `年份"${year}"无效，请输入合理的四位数年份` });
+              return;
+            }
+            if (isNaN(monthNum) || monthNum < 1 || monthNum > 12 || !Number.isInteger(monthNum)) {
+              errors.push({ row: rowNum, message: `月份"${month}"无效，必须为1-12的整数` });
+              return;
+            }
+
+            let finalRecordDate = recordDate;
+            if (finalRecordDate && /^\d{4}-\d{1,2}-\d{1,2}$/.test(finalRecordDate)) {
+              const dateParts = finalRecordDate.split("-");
+              const dYear = Number(dateParts[0]);
+              const dMonth = Number(dateParts[1]);
+              const dDay = Number(dateParts[2]);
+              const daysInMonth = new Date(dYear, dMonth, 0).getDate();
+              if (dDay < 1 || dDay > daysInMonth) {
+                errors.push({ row: rowNum, message: `日期"${finalRecordDate}"无效，${dYear}年${dMonth}月没有${dDay}日` });
+                return;
+              }
+              if (dYear !== yearNum) {
+                errors.push({ row: rowNum, message: `日期所属年份(${dYear})与"年份"列(${yearNum})不一致` });
+                return;
+              }
+              if (dMonth !== monthNum) {
+                errors.push({ row: rowNum, message: `日期所属月份(${dMonth}月)与"月份"列(${monthNum}月)不一致` });
+                return;
+              }
+            } else if (finalRecordDate) {
+              errors.push({ row: rowNum, message: `日期格式"${finalRecordDate}"无效，请使用YYYY-MM-DD格式` });
+              return;
+            }
+
             const regionId = departments.find((d) => d.id === departmentId)?.regionId || "bj";
 
             success.push({
@@ -96,7 +131,7 @@ export function importEmissionRecordsFromExcel(
               quantity,
               periodYear: year,
               periodMonth: month,
-              recordDate: recordDate || `${year}-${String(month).padStart(2, "0")}-01`,
+              recordDate: finalRecordDate || `${year}-${String(month).padStart(2, "0")}-01`,
               remark,
             });
           } catch (err: any) {

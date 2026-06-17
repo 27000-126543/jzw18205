@@ -51,28 +51,31 @@ export function calculateOffsetByPeriod(
   quarter?: number
 ): number {
   const filtered = filterMeasuresByPeriod(measures, year, quarter);
-  if (!quarter) {
-    return calculateTotalOffset(filtered);
+
+  let periodStart: Date;
+  let periodEnd: Date;
+
+  if (quarter) {
+    const quarterMonths: Record<number, [number, number]> = {
+      1: [1, 3],
+      2: [4, 6],
+      3: [7, 9],
+      4: [10, 12],
+    };
+    const [qStartMonth, qEndMonth] = quarterMonths[quarter] || [1, 3];
+    periodStart = new Date(`${year}-${String(qStartMonth).padStart(2, "0")}-01`);
+    periodEnd = new Date(`${year}-${String(qEndMonth).padStart(2, "0")}-${new Date(Number(year), qEndMonth, 0).getDate()}`);
+  } else {
+    periodStart = new Date(`${year}-01-01`);
+    periodEnd = new Date(`${year}-12-31`);
   }
-
-  const quarterMonths: Record<number, [number, number]> = {
-    1: [1, 3],
-    2: [4, 6],
-    3: [7, 9],
-    4: [10, 12],
-  };
-  const [qStartMonth, qEndMonth] = quarterMonths[quarter] || [1, 3];
-  const qStart = new Date(`${year}-${String(qStartMonth).padStart(2, "0")}-01`);
-  const qEnd = new Date(`${year}-${String(qEndMonth).padStart(2, "0")}-${new Date(Number(year), qEndMonth, 0).getDate()}`);
-
-  const qTotalDays = (qEnd.getTime() - qStart.getTime()) / (86400000) + 1;
 
   let offset = 0;
   for (const m of filtered) {
     const mStart = new Date(m.startDate);
     const mEnd = new Date(m.endDate);
-    const overlapStart = mStart < qStart ? qStart : mStart;
-    const overlapEnd = mEnd > qEnd ? qEnd : mEnd;
+    const overlapStart = mStart < periodStart ? periodStart : mStart;
+    const overlapEnd = mEnd > periodEnd ? periodEnd : mEnd;
     if (overlapStart > overlapEnd) continue;
     const overlapDays = (overlapEnd.getTime() - overlapStart.getTime()) / 86400000 + 1;
     const mTotalDays = (mEnd.getTime() - mStart.getTime()) / 86400000 + 1;

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Target, Edit3, AlertTriangle, CheckCircle2, Clock, Plus, X, Check, AlertCircle } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
@@ -13,6 +14,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import ProgressRing from "@/components/ui/ProgressRing";
 
 export default function Targets() {
+  const [searchParams] = useSearchParams();
   const {
     annualTargets,
     emissionRecords,
@@ -21,7 +23,15 @@ export default function Targets() {
     currentYear,
     addAnnualTarget,
     updateAnnualTarget,
+    setCurrentYear,
   } = useCarbonStore();
+
+  useEffect(() => {
+    const yearParam = searchParams.get("year");
+    if (yearParam && yearParam !== currentYear) {
+      setCurrentYear(yearParam);
+    }
+  }, [searchParams, currentYear, setCurrentYear]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState("");

@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Zap, Target, Leaf, TrendingDown, Factory } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
@@ -20,6 +21,7 @@ import CategoryPieChart from "@/components/charts/CategoryPieChart";
 import DepartmentBarChart from "@/components/charts/DepartmentBarChart";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const {
     emissionRecords,
     reductionMeasures,
@@ -215,7 +217,7 @@ export default function Dashboard() {
               <Target className="w-12 h-12 text-forest-300 mb-3" />
               <p className="text-forest-500 text-sm mb-3">{currentYear}年度尚未设置减排目标</p>
               <button
-                onClick={() => useCarbonStore.getState().setCurrentYear(currentYear)}
+                onClick={() => navigate(`/targets?year=${currentYear}`)}
                 className="text-sm text-forest-600 hover:text-forest-700 underline underline-offset-2"
               >
                 前往目标管理设置

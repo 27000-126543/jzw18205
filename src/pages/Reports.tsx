@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Plus, Download, FileText, Calendar, Eye, FileSpreadsheet, Trash2, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { Plus, Download, FileText, Calendar, Eye, FileSpreadsheet, Trash2, CheckCircle, Clock, AlertCircle, X, Check, Settings2 } from "lucide-react";
 import { useCarbonStore } from "@/store";
 import {
   filterRecordsByPeriod,
@@ -8,6 +8,7 @@ import {
   calculateNetEmission,
   calculateYoYChange,
   aggregateBySource,
+  aggregateByCategory,
   calculateTargetCompletion,
 } from "@/utils/calculator";
 import { formatEmission, formatDate, getQuarterLabel } from "@/utils/format";
@@ -16,7 +17,6 @@ import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import CategoryPieChart from "@/components/charts/CategoryPieChart";
 import type { EsgReport, ReportFramework, ReportSummary } from "@/types";
-import { aggregateByCategory } from "@/utils/calculator";
 
 export default function Reports() {
   const {
@@ -28,10 +28,23 @@ export default function Reports() {
     addReport,
     updateReport,
     deleteReport,
-    currentYear,
   } = useCarbonStore();
 
   const [showPreview, setShowPreview] = useState<EsgReport | null>(null);
+  const [showGeneratePanel, setShowGeneratePanel] = useState(false);
+  const [generateForm, setGenerateForm] = useState<{
+    type: "quarterly" | "annual";
+    year: string;
+    quarter: number;
+    framework: ReportFramework;
+    scope: "all" | "department";
+  }>({
+    type: "quarterly",
+    year: new Date().getFullYear().toString(),
+    quarter: Math.ceil((new Date().getMonth() + 1) / 3),
+    framework: "gri",
+    scope: "all",
+  });
 
   const generateReportSummary = (report: EsgReport): ReportSummary => {
     const yearRecords = report.quarter
@@ -61,7 +74,6 @@ export default function Reports() {
 
     const sources = aggregateBySource(yearRecords).slice(0, 5);
 
-    const totalEmissionAll = total;
     const topDepts = departments
       .map((d) => {
         const deptRecords = yearRecords.filter((r) => r.departmentId === d.id);
@@ -84,10 +96,20 @@ export default function Reports() {
     };
   };
 
-  const handleGenerateReport = (type: "quarterly" | "annual") => {
+  const handleOpenGeneratePanel = (type: "quarterly" | "annual") => {
+    setGenerateForm({
+      type,
+      year: new Date().getFullYear().toString(),
+      quarter: Math.ceil((new Date().getMonth() + 1) / 3),
+      framework: "gri",
+      scope: "all",
+    });
+    setShowGeneratePanel(true);
+  };
+
+  const handleGenerateReport = () => {
+    const { type, year, quarter, framework } = generateForm;
     const today = new Date();
-    const year = today.getFullYear().toString();
-    const quarter = Math.ceil((today.getMonth() + 1) / 3);
 
     const newReport: Omit<EsgReport, "id"> = {
       reportType: type,
@@ -100,8 +122,10 @@ export default function Reports() {
       quarter: type === "quarterly" ? quarter : undefined,
       status: "draft",
       generatedAt: today.toISOString().slice(0, 10),
+      framework,
     };
     addReport(newReport);
+    setShowGeneratePanel(false);
   };
 
   const handleExport = (report: EsgReport, framework: ReportFramework) => {
@@ -132,22 +156,20 @@ export default function Reports() {
       )
     : [];
 
+  const previewReportTarget = showPreview
+    ? annualTargets.find((t) => t.departmentId === "all" && t.year === showPreview.year)
+    : null;
+
   return (
     <div>
       <PageHeader
         title="ESG报告中心"
         subtitle="自动生成ESG报告，支持GRI/CDP标准框架导出"
         actions={
-          <>
-            <button onClick={() => handleGenerateReport("quarterly")} className="btn-secondary flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              生成季度摘要
-            </button>
-            <button onClick={() => handleGenerateReport("annual")} className="btn-primary flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              生成年度报告
-            </button>
-          </>
+          <button onClick={() => handleOpenGeneratePanel("annual")} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            生成报告
+          </button>
         }
       />
 
@@ -198,15 +220,12 @@ export default function Reports() {
                   <p className="font-bold text-amber-600">{formatEmission(summary.netEmission)} 吨</p>
                 </div>
                 <div>
-                  <p className="text-xs text-forest-500">目标完成</p>
-                  <p className="font-bold text-forest-700">{summary.targetCompletion.toFixed(1)}%</p>
+                  <p className="text-xs text-forest-500">抵消量</p>
+                  <p className="font-bold text-forest-700">{formatEmission(summary.totalOffset)} 吨</p>
                 </div>
                 <div>
-                  <p className="text-xs text-forest-500">同比变化</p>
-                  <p className={`font-bold ${summary.yoyChange <= 0 ? "text-forest-600" : "text-amber-600"}`}>
-                    {summary.yoyChange > 0 ? "+" : ""}
-                    {summary.yoyChange.toFixed(1)}%
-                  </p>
+                  <p className="text-xs text-forest-500">目标完成</p>
+                  <p className="font-bold text-forest-700">{summary.targetCompletion.toFixed(1)}%</p>
                 </div>
               </div>
 
@@ -256,6 +275,157 @@ export default function Reports() {
         })}
       </div>
 
+      {showGeneratePanel && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-fade-in-up">
+            <div className="p-6 border-b border-forest-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-forest-100 flex items-center justify-center">
+                  <Settings2 className="w-5 h-5 text-forest-600" />
+                </div>
+                <h3 className="font-display font-bold text-xl text-forest-800">生成报告</h3>
+              </div>
+              <button onClick={() => setShowGeneratePanel(false)} className="p-2 rounded-lg hover:bg-forest-50 text-forest-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="label">报告类型</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, type: "quarterly" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                      generateForm.type === "quarterly"
+                        ? "border-forest-500 bg-forest-50 text-forest-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-forest-200"
+                    }`}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    季度摘要
+                  </button>
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, type: "annual" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                      generateForm.type === "annual"
+                        ? "border-forest-500 bg-forest-50 text-forest-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-forest-200"
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    年度报告
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">年份</label>
+                  <select
+                    value={generateForm.year}
+                    onChange={(e) => setGenerateForm({ ...generateForm, year: e.target.value })}
+                    className="input-field"
+                  >
+                    {["2023", "2024", "2025", "2026", "2027"].map((y) => (
+                      <option key={y} value={y}>{y}年</option>
+                    ))}
+                  </select>
+                </div>
+                {generateForm.type === "quarterly" && (
+                  <div>
+                    <label className="label">季度</label>
+                    <select
+                      value={generateForm.quarter}
+                      onChange={(e) => setGenerateForm({ ...generateForm, quarter: Number(e.target.value) })}
+                      className="input-field"
+                    >
+                      <option value={1}>第一季度 (Q1)</option>
+                      <option value={2}>第二季度 (Q2)</option>
+                      <option value={3}>第三季度 (Q3)</option>
+                      <option value={4}>第四季度 (Q4)</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="label">报告框架</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, framework: "gri" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      generateForm.framework === "gri"
+                        ? "border-forest-500 bg-forest-50 text-forest-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-forest-200"
+                    }`}
+                  >
+                    GRI 标准
+                  </button>
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, framework: "cdp" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      generateForm.framework === "cdp"
+                        ? "border-purple-500 bg-purple-50 text-purple-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-purple-200"
+                    }`}
+                  >
+                    CDP 问卷
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">报告范围</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, scope: "all" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      generateForm.scope === "all"
+                        ? "border-forest-500 bg-forest-50 text-forest-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-forest-200"
+                    }`}
+                  >
+                    全公司
+                  </button>
+                  <button
+                    onClick={() => setGenerateForm({ ...generateForm, scope: "department" })}
+                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-colors ${
+                      generateForm.scope === "department"
+                        ? "border-forest-500 bg-forest-50 text-forest-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-forest-200"
+                    }`}
+                  >
+                    按部门分解
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-forest-50/50 border border-forest-100">
+                <p className="text-sm text-forest-700 font-medium mb-1">报告预览</p>
+                <p className="text-xs text-forest-500">
+                  {generateForm.type === "quarterly"
+                    ? `${generateForm.year}年第${generateForm.quarter}季度ESG摘要`
+                    : `${generateForm.year}年度ESG报告`}
+                  {" · "}{generateForm.framework === "gri" ? "GRI标准" : "CDP问卷"}
+                  {" · "}{generateForm.scope === "all" ? "全公司" : "按部门分解"}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-forest-100 flex justify-end gap-3">
+              <button onClick={() => setShowGeneratePanel(false)} className="btn-secondary">
+                取消
+              </button>
+              <button onClick={handleGenerateReport} className="btn-primary flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                生成报告
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPreview && previewSummary && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-fade-in-up">
@@ -265,11 +435,11 @@ export default function Reports() {
                 <div className="flex items-center gap-3 mt-1.5">
                   <StatusBadge status={showPreview.reportType} type="type" />
                   <StatusBadge status={showPreview.status} />
+                  {showPreview.framework && <StatusBadge status={showPreview.framework} type="framework" />}
                   <span className="text-sm text-forest-500">生成于 {formatDate(showPreview.generatedAt)}</span>
                 </div>
               </div>
               <button onClick={() => setShowPreview(null)} className="p-2 rounded-lg hover:bg-forest-50 text-forest-500">
-                <AlertCircle className="w-5 h-5" style={{ display: "none" }} />
                 <span className="text-2xl leading-none">&times;</span>
               </button>
             </div>
@@ -300,6 +470,38 @@ export default function Reports() {
                   </p>
                 </div>
               </div>
+
+              {previewReportTarget && (
+                <div className="p-5 rounded-xl bg-forest-50/50 border border-forest-100">
+                  <h4 className="font-display font-bold text-forest-800 mb-3">减排目标对比</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <p className="text-xs text-forest-500">基准排放</p>
+                      <p className="font-bold text-slate-850">{formatEmission(previewReportTarget.baselineEmissionTonCo2)} 吨</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-forest-500">目标排放</p>
+                      <p className="font-bold text-forest-700">{formatEmission(previewReportTarget.targetEmissionTonCo2)} 吨</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-forest-500">当前净排放</p>
+                      <p className="font-bold text-amber-600">{formatEmission(previewSummary.netEmission)} 吨</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-forest-500">距目标差距</p>
+                      <p className={`font-bold ${
+                        previewSummary.netEmission <= previewReportTarget.targetEmissionTonCo2
+                          ? "text-forest-600"
+                          : "text-amber-600"
+                      }`}>
+                        {previewSummary.netEmission <= previewReportTarget.targetEmissionTonCo2
+                          ? `已低于目标 ${formatEmission(previewReportTarget.targetEmissionTonCo2 - previewSummary.netEmission)} 吨`
+                          : `还需减排 ${formatEmission(previewSummary.netEmission - previewReportTarget.targetEmissionTonCo2)} 吨`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <div className="p-5 rounded-xl bg-forest-50/50 border border-forest-100">
@@ -369,9 +571,19 @@ export default function Reports() {
               <button onClick={() => setShowPreview(null)} className="btn-secondary">
                 关闭
               </button>
-              <button onClick={() => handleExport(showPreview, "gri")} className="btn-primary flex items-center gap-2">
+              <button
+                onClick={() => handleExport(showPreview, showPreview.framework || "gri")}
+                className="btn-primary flex items-center gap-2"
+              >
                 <Download className="w-4 h-4" />
-                导出 GRI 格式
+                导出 {showPreview.framework === "cdp" ? "CDP" : "GRI"} 格式
+              </button>
+              <button
+                onClick={() => handleExport(showPreview, showPreview.framework === "cdp" ? "gri" : "cdp")}
+                className="btn-primary flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600"
+              >
+                <Download className="w-4 h-4" />
+                导出 {showPreview.framework === "cdp" ? "GRI" : "CDP"} 格式
               </button>
             </div>
           </div>
